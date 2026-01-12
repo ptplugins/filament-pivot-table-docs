@@ -1,6 +1,22 @@
+<p align="center">
+    <img src="logo.png" alt="Filament Pivot Table" width="200">
+</p>
+
 # Filament Pivot Table
 
 A powerful, interactive pivot table widget for Filament v3. Transform your data into insightful cross-tabulations with hierarchical rows, collapsible columns, and real-time aggregations.
+
+<p align="center">
+    <img src="screenshot.png" alt="Filament Pivot Table Screenshot" width="100%">
+</p>
+
+## Demo
+
+Try the live demo: [plugins-demo.premte.ch/admin/sales-pivot](https://plugins-demo.premte.ch/admin/sales-pivot)
+
+**Credentials:**
+- Email: `admin@example.com`
+- Password: `password`
 
 ## Features
 
@@ -241,5 +257,5 @@ Contributions are welcome! Please read our contributing guidelines before submit
 
 ## Support
 
-- [GitHub Issues](https://github.com/your-repo/issues)
-- [Discord](https://discord.gg/filament) - #pivot-table channel
+- [GitHub Issues](https://github.com/ptplugins/filament-pivot-table/issues)
+- Email: mihailo@premte.ch
