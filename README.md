@@ -26,6 +26,7 @@ Try the live demo: [plugins-demo.premte.ch/admin/sales-pivot](https://plugins-de
 - **Multiple Aggregations** - Sum, Average, Count, Min, Max
 - **Row & Column Totals** - Automatic total calculations
 - **Grand Total** - Overall summary row
+- **Drill-Down** - Click any cell to see underlying data records
 - **CSV Export** - Export visible data to CSV
 - **URL Deep Linking** - Share specific pivot configurations via URL
 - **Dark Mode** - Full Tailwind dark mode support
@@ -80,6 +81,7 @@ Add the pivot table widget to any Filament page:
 | `filters` | array | `[]` | Filters to apply to data query |
 | `valuePrefix` | string | `''` | Prefix for formatted values (e.g., '$') |
 | `valueSuffix` | string | `''` | Suffix for formatted values (e.g., '%') |
+| `drillDownEnabled` | bool | `false` | Enable click-to-drill-down on cells |
 
 ### Field Definition
 
@@ -203,6 +205,60 @@ Click the "Export CSV" button to download the current pivot view. The export:
 - Respects current collapse state
 - Handles colspan/rowspan correctly
 - Includes all visible data
+
+## Drill-Down
+
+Enable drill-down to allow users to click on any cell and see the underlying data records that make up that aggregated value.
+
+### Enabling Drill-Down
+
+```php
+@livewire('pivot-table-widget', [
+    'name' => 'sales-pivot',
+    'model' => \App\Models\Sale::class,
+    'availableFields' => [
+        ['name' => 'category', 'label' => 'Category', 'type' => 'string'],
+        ['name' => 'product', 'label' => 'Product', 'type' => 'string'],
+        ['name' => 'region', 'label' => 'Region', 'type' => 'string'],
+        ['name' => 'amount', 'label' => 'Amount', 'type' => 'numeric'],
+    ],
+    'rowDimensions' => ['category', 'product'],
+    'columnDimensions' => ['region'],
+    'aggregationField' => 'amount',
+    'drillDownEnabled' => true,  // Enable drill-down
+])
+```
+
+### How It Works
+
+1. **Click on any value cell** - Cells become clickable with a hover effect
+2. **Modal opens** - A Filament modal displays the filtered data
+3. **Automatic filtering** - Data is filtered by the row and column dimensions of the clicked cell
+4. **All columns shown** - The modal table displays all fields from `availableFields`
+
+### Example
+
+If your pivot table shows:
+
+| Category | Product | North | South |
+|----------|---------|-------|-------|
+| Clothing |         | $500  | $300  |
+|          | T-Shirt | $300  | $200  |
+|          | Jeans   | $200  | $100  |
+
+Clicking on the **$300** cell (Clothing → T-Shirt → North) will open a modal showing all sales records where:
+- `category = 'Clothing'`
+- `product = 'T-Shirt'`
+- `region = 'North'`
+
+The modal heading will display: **Category: Clothing | Product: T-Shirt | Region: North**
+
+### Styling
+
+When drill-down is enabled:
+- Cells get `cursor-pointer` class
+- Hover effect: `hover:bg-primary-50 dark:hover:bg-primary-900/20`
+- Modal uses Filament's standard `<x-filament::modal>` component
 
 ## Examples
 
