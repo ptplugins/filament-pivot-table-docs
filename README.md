@@ -31,6 +31,7 @@ Try the live demo: [plugins-demo.premte.ch/admin/sales-pivot](https://plugins-de
 - **URL Deep Linking** - Share specific pivot configurations via URL
 - **Dark Mode** - Full Tailwind dark mode support
 - **i18n Ready** - Translation support included
+- **Array Data Source** - Use raw arrays instead of Eloquent models (API, CSV, etc.)
 
 ## Installation
 
@@ -69,8 +70,11 @@ Add the pivot table widget to any Filament page:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `name` | string | `'pivot-table'` | Unique identifier for the pivot table |
-| `model` | string | required | Eloquent model class |
+| `model` | string | * | Eloquent model class |
+| `data` | array | * | Raw array data (alternative to model) |
 | `availableFields` | array | `[]` | Fields available for pivot configuration |
+
+> **Note:** Use either `model` OR `data`, not both. One is required.
 | `rowDimensions` | array | `[]` | Default row grouping fields |
 | `columnDimensions` | array | `[]` | Default column grouping fields |
 | `aggregationField` | string | `''` | Field to aggregate |
@@ -96,6 +100,37 @@ Each field in `availableFields` should have:
 ```
 
 Only `numeric` type fields can be used for aggregation values.
+
+### Using Array Data
+
+Instead of an Eloquent model, you can pass raw array data directly. This is useful for data from APIs, CSV files, or pre-processed data:
+
+```php
+@livewire('pivot-table-widget', [
+    'name' => 'api-pivot',
+    'data' => [
+        ['region' => 'North', 'product' => 'Widget A', 'quarter' => 'Q1', 'sales' => 1500],
+        ['region' => 'North', 'product' => 'Widget A', 'quarter' => 'Q2', 'sales' => 1800],
+        ['region' => 'South', 'product' => 'Widget B', 'quarter' => 'Q1', 'sales' => 2200],
+        // ... more data
+    ],
+    'availableFields' => [
+        ['name' => 'region', 'label' => 'Region', 'type' => 'string'],
+        ['name' => 'product', 'label' => 'Product', 'type' => 'string'],
+        ['name' => 'quarter', 'label' => 'Quarter', 'type' => 'string'],
+        ['name' => 'sales', 'label' => 'Sales', 'type' => 'numeric'],
+    ],
+    'rowDimensions' => ['region', 'product'],
+    'columnDimensions' => ['quarter'],
+    'aggregationField' => 'sales',
+    'aggregationType' => 'sum',
+])
+```
+
+When using array data:
+- Filters are applied in-memory using Laravel Collections
+- All filter operators work the same (`like`, `gt`, `between`, etc.)
+- Drill-down functionality is fully supported
 
 ### Value Formatting (Prefix/Suffix)
 
