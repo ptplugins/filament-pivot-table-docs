@@ -82,6 +82,7 @@ Add the pivot table widget to any Filament page:
 | `showConfigPanel` | bool | `true` | Show/hide configuration controls |
 | `stickyRowHeaders` | bool | `false` | Enable sticky row dimension columns |
 | `stickyColumnWidth` | int | `150` | Width of sticky columns in pixels |
+| `rowHeight` | string | `null` | CSS height value for uniform row heights (e.g., '3.5rem') |
 | `filters` | array | `[]` | Filters to apply to data query |
 | `valuePrefix` | string | `''` | Prefix for formatted values (e.g., '$') |
 | `valueSuffix` | string | `''` | Suffix for formatted values (e.g., '%') |
@@ -131,6 +132,19 @@ When using array data:
 - Filters are applied in-memory using Laravel Collections
 - All filter operators work the same (`like`, `gt`, `between`, etc.)
 - Drill-down functionality is fully supported
+
+### Row Height Configuration
+
+For long category names that wrap to multiple lines, you can set a uniform row height to ensure consistent appearance:
+
+```php
+@livewire('pivot-table-widget', [
+    'rowHeight' => '3.5rem',  // All rows will have this height
+    // ... other options
+])
+```
+
+Row labels automatically support text wrapping with `line-clamp-2` (max 2 lines). Combined with a fixed `rowHeight`, this ensures all rows appear uniform even with varying text lengths.
 
 ### Value Formatting (Prefix/Suffix)
 
@@ -202,6 +216,106 @@ class SalesPage extends Component
     // ...
 ])
 ```
+
+### Filament Resource Integration
+
+For seamless integration with Filament Resources, extend `ListPivotRecords` instead of manually embedding the widget. This provides automatic filter integration, drill-down support with original records, and a consistent look with Filament's table pages.
+
+```php
+<?php
+
+namespace App\Filament\Resources\SaleResource\Pages;
+
+use App\Filament\Resources\SaleResource;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
+use PtPlugins\FilamentPivotTable\Pages\ListPivotRecords;
+
+class ListSalesPivot extends ListPivotRecords
+{
+    protected static string $resource = SaleResource::class;
+
+    public function getPivotData(Builder $query): array
+    {
+        return $query
+            ->select(
+                'category',
+                'region',
+                'quarter',
+                'month',
+                DB::raw('SUM(cost) as cost'),
+                DB::raw('SUM(quantity) as quantity'),
+                DB::raw('COUNT(*) as count')
+            )
+            ->groupBy('category', 'region', 'quarter', 'month')
+            ->get()
+            ->toArray();
+    }
+
+    public function getDrillDownData(Builder $query, array $rowFilters, array $colFilters): array
+    {
+        foreach ($rowFilters as $field => $value) {
+            $query->where($field, $value);
+        }
+        foreach ($colFilters as $field => $value) {
+            $query->where($field, $value);
+        }
+        return $query->get()->toArray();
+    }
+
+    public function getDrillDownColumns(): array
+    {
+        return [
+            ['name' => 'id', 'label' => 'ID', 'type' => 'numeric'],
+            ['name' => 'category', 'label' => 'Category', 'type' => 'string'],
+            ['name' => 'product', 'label' => 'Product', 'type' => 'string'],
+            ['name' => 'region', 'label' => 'Region', 'type' => 'string'],
+            ['name' => 'cost', 'label' => 'Cost', 'type' => 'numeric'],
+            ['name' => 'quantity', 'label' => 'Quantity', 'type' => 'numeric'],
+        ];
+    }
+
+    public function getPivotConfig(): array
+    {
+        return [
+            'name' => 'sales-pivot',
+            'availableFields' => [
+                ['name' => 'category', 'label' => 'Category', 'type' => 'string'],
+                ['name' => 'region', 'label' => 'Region', 'type' => 'string'],
+                ['name' => 'quarter', 'label' => 'Quarter', 'type' => 'string'],
+                ['name' => 'month', 'label' => 'Month', 'type' => 'string'],
+                ['name' => 'cost', 'label' => 'Amount', 'type' => 'numeric'],
+                ['name' => 'quantity', 'label' => 'Quantity', 'type' => 'numeric'],
+                ['name' => 'count', 'label' => 'Count', 'type' => 'numeric'],
+            ],
+            'rowDimensions' => ['category'],
+            'columnDimensions' => ['quarter', 'month'],
+            'aggregationField' => 'cost',
+            'aggregationType' => 'sum',
+            'drillDownEnabled' => true,
+            'rowHeight' => '3.5rem', // Optional: uniform row heights
+        ];
+    }
+}
+```
+
+Then register the page in your Resource:
+
+```php
+public static function getPages(): array
+{
+    return [
+        'index' => Pages\ListSales::route('/'),
+        'pivot' => Pages\ListSalesPivot::route('/pivot'),
+    ];
+}
+```
+
+**Key benefits:**
+- Filament table filters are automatically applied to pivot data
+- Drill-down shows original database records (not aggregated data)
+- Filter indicators and collapsible filter panel included
+- Full Resource navigation integration
 
 ### URL Deep Linking
 
