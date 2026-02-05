@@ -27,7 +27,10 @@ Try the live demo: [plugins-demo.premte.ch/admin/sales-pivot](https://plugins-de
 - **Row & Column Totals** - Automatic total calculations
 - **Grand Total** - Overall summary row
 - **Drill-Down** - Click any cell to see underlying data records
-- **CSV Export** - Export visible data to CSV
+- **CSV & Excel Export** - Export visible data to CSV or Excel (configurable)
+- **Dimension Reordering** - Drag-free reordering of row/column dimensions with arrows
+- **Column Sorting** - Click column headers to sort data
+- **Drill-Down Filters** - Auto-generated filters in drill-down modal
 - **URL Deep Linking** - Share specific pivot configurations via URL
 - **Dark Mode** - Full Tailwind dark mode support
 - **i18n Ready** - Translation support included
@@ -87,6 +90,8 @@ Add the pivot table widget to any Filament page:
 | `valuePrefix` | string | `''` | Prefix for formatted values (e.g., '$') |
 | `valueSuffix` | string | `''` | Suffix for formatted values (e.g., '%') |
 | `drillDownEnabled` | bool | `false` | Enable click-to-drill-down on cells |
+| `csvExportEnabled` | bool | `true` | Show/hide CSV export button |
+| `xlsxExportEnabled` | bool | `true` | Show/hide Excel export button |
 
 ### Field Definition
 
@@ -317,6 +322,218 @@ public static function getPages(): array
 - Filter indicators and collapsible filter panel included
 - Full Resource navigation integration
 
+### Programmatic Configuration API
+
+You can programmatically control the pivot table configuration from parent components using Livewire events. This is useful for creating preset configurations, saving user preferences, or building custom UI controls.
+
+#### Setting Configuration
+
+Dispatch the `set-pivot-configuration` event with your desired configuration:
+
+```php
+// In your ListPivotRecords page or parent Livewire component
+public function loadPreset1(): void
+{
+    $this->dispatch('set-pivot-configuration', [
+        'rows' => ['category', 'region'],
+        'columns' => ['quarter'],
+        'value' => 'cost',
+        'aggregation' => 'sum',
+    ]);
+}
+```
+
+The configuration will be applied immediately and reflected in the URL parameters.
+
+#### Getting Current Configuration
+
+Request the current configuration and handle it in a listener. Use the **context parameter** to pass additional data (like save name, user ID, etc.) through the event chain:
+
+```php
+class ListSalesPivot extends ListPivotRecords
+{
+    protected $listeners = [
+        'pivot-configuration-ready' => 'handlePivotConfiguration',
+    ];
+
+    public function saveCurrentConfiguration(string $name = 'My Config'): void
+    {
+        // Request current config WITH context parameters
+        $this->dispatch('request-pivot-configuration',
+            context: [
+                'action' => 'save',
+                'saveName' => $name,
+                'userId' => auth()->id(),
+                'timestamp' => now()->toIso8601String(),
+            ]
+        );
+    }
+
+    public function handlePivotConfiguration(array $configuration, array $context = []): void
+    {
+        // Handle the configuration with context
+        // $configuration = [
+        //     'rows' => ['category', 'region'],
+        //     'columns' => ['quarter', 'month'],
+        //     'value' => 'cost',
+        //     'aggregation' => 'sum',
+        // ]
+        // $context = [
+        //     'action' => 'save',
+        //     'saveName' => 'My Config',
+        //     'userId' => 1,
+        //     'timestamp' => '2025-01-28T...',
+        // ]
+
+        $saveName = $context['saveName'] ?? 'Default';
+        $userId = $context['userId'] ?? auth()->id();
+
+        // Save to database, session, or display to user
+        session([
+            "pivot_config_{$saveName}" => [
+                'configuration' => $configuration,
+                'saved_at' => $context['timestamp'] ?? now(),
+                'user_id' => $userId,
+            ]
+        ]);
+
+        \Filament\Notifications\Notification::make()
+            ->title("Configuration saved: {$saveName}")
+            ->success()
+            ->send();
+    }
+}
+```
+
+**Why use context?** Without context, you can't pass parameters (like save name) from your method to the handler. The context parameter solves this by flowing through the entire event chain:
+
+```
+saveCurrentConfiguration($name)
+  → dispatch('request-pivot-configuration', context: ['saveName' => $name])
+    → Widget: emitConfiguration($context)
+      → dispatch('pivot-configuration-ready', config, context)
+        → handlePivotConfiguration($config, $context)  ✓ $context['saveName'] preserved!
+```
+
+#### Adding Preset Buttons
+
+You can add custom buttons to your view to trigger preset configurations. If you've published the views:
+
+```blade
+{{-- In your published list-pivot-records.blade.php view --}}
+<button
+    type="button"
+    wire:click="loadPreset1"
+    class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium..."
+>
+    Sales by Category & Region
+</button>
+
+<button
+    type="button"
+    wire:click="saveCurrentConfiguration"
+    class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium..."
+>
+    Save Configuration
+</button>
+```
+
+#### Complete Example
+
+```php
+<?php
+
+namespace App\Filament\Resources\SaleResource\Pages;
+
+use App\Filament\Resources\SaleResource;
+use Illuminate\Database\Eloquent\Builder;
+use PtPlugins\FilamentPivotTable\Pages\ListPivotRecords;
+
+class ListSalesPivot extends ListPivotRecords
+{
+    protected static string $resource = SaleResource::class;
+
+    protected $listeners = [
+        'pivot-configuration-ready' => 'handlePivotConfiguration',
+    ];
+
+    // Preset 1: Category & Region by Quarter
+    public function loadPreset1(): void
+    {
+        $this->dispatch('set-pivot-configuration', [
+            'rows' => ['category', 'region'],
+            'columns' => ['quarter'],
+            'value' => 'cost',
+            'aggregation' => 'sum',
+        ]);
+    }
+
+    // Preset 2: Region by Month (Quantity)
+    public function loadPreset2(): void
+    {
+        $this->dispatch('set-pivot-configuration', [
+            'rows' => ['region'],
+            'columns' => ['month'],
+            'value' => 'quantity',
+            'aggregation' => 'sum',
+        ]);
+    }
+
+    // Save current configuration with custom name
+    public function saveCurrentConfiguration(string $name = 'Default'): void
+    {
+        $this->dispatch('request-pivot-configuration',
+            context: [
+                'action' => 'save',
+                'saveName' => $name,
+                'userId' => auth()->id(),
+            ]
+        );
+    }
+
+    // Save as preset
+    public function saveAsPreset(string $presetName): void
+    {
+        $this->dispatch('request-pivot-configuration',
+            context: [
+                'action' => 'save_preset',
+                'presetName' => $presetName,
+            ]
+        );
+    }
+
+    // Handle configuration from widget (with context)
+    public function handlePivotConfiguration(array $configuration, array $context = []): void
+    {
+        $action = $context['action'] ?? 'view';
+        $saveName = $context['saveName'] ?? $context['presetName'] ?? 'Default';
+
+        if ($action === 'save' || $action === 'save_preset') {
+            // Save to user preferences or database
+            auth()->user()->update([
+                'pivot_preferences' => [
+                    $saveName => $configuration,
+                ],
+            ]);
+
+            \Filament\Notifications\Notification::make()
+                ->title("Configuration saved: {$saveName}")
+                ->body('Your pivot table preferences have been saved.')
+                ->success()
+                ->send();
+        }
+    }
+
+    // ... rest of your methods (getPivotData, getDrillDownData, etc.)
+}
+```
+
+**Available configuration keys:**
+- `rows` - Array of field names for row dimensions
+- `columns` - Array of field names for column dimensions
+- `value` - Field name for aggregation value
+- `aggregation` - Aggregation type: `sum`, `avg`, `count`, `min`, `max`, `percentage`
+
 ### URL Deep Linking
 
 The pivot table automatically syncs its state to URL query parameters:
@@ -402,12 +619,87 @@ Clicking on the **$300** cell (Clothing → T-Shirt → North) will open a modal
 
 The modal heading will display: **Category: Clothing | Product: T-Shirt | Region: North**
 
+### Drill-Down Filters
+
+When drill-down is enabled, the modal automatically includes **SelectFilter** dropdowns for each non-numeric column. Filters are auto-populated with unique values from the current drill-down data.
+
+This allows users to further filter the drill-down results without writing any additional code.
+
 ### Styling
 
 When drill-down is enabled:
 - Cells get `cursor-pointer` class
 - Hover effect: `hover:bg-primary-50 dark:hover:bg-primary-900/20`
 - Modal uses Filament's standard `<x-filament::modal>` component
+
+## Column Sorting
+
+Click on any column header to sort the pivot table rows by that column's values.
+
+### How It Works
+
+1. **First click** - Sort descending (highest values first)
+2. **Second click** - Sort ascending (lowest values first)
+3. **Third click** - Reset to original order
+
+A sort indicator (↑/↓) appears in the column header to show the current sort direction.
+
+### Supported Headers
+
+- **Single-level columns** - Click directly on the column header
+- **Multi-level columns** - Click on the child header (e.g., click "Jan" under "Q1")
+
+Sorting is session-based and does not persist in the URL.
+
+## Dimension Reordering
+
+Use the up/down arrow buttons to reorder row and column dimensions without drag-and-drop.
+
+### How to Use
+
+1. Open the configuration panel (click "Show Controls")
+2. Each dimension badge shows arrow buttons:
+   - **↑** Move dimension up (higher in hierarchy)
+   - **↓** Move dimension down (lower in hierarchy)
+3. The pivot table re-renders immediately with the new dimension order
+
+### Example
+
+If your rows are `[Category, Product, Region]`:
+- Click ↓ on "Category" → `[Product, Category, Region]`
+- Click ↑ on "Region" → `[Product, Region, Category]`
+
+## Export Configuration
+
+Control which export buttons are visible using configuration options.
+
+### Hiding Export Buttons
+
+```php
+@livewire('pivot-table-widget', [
+    'name' => 'sales-pivot',
+    'model' => \App\Models\Sale::class,
+    // ... other options
+    'csvExportEnabled' => false,   // Hide CSV export
+    'xlsxExportEnabled' => true,   // Show Excel export
+])
+```
+
+Or in `getPivotConfig()` for Resource integration:
+
+```php
+public function getPivotConfig(): array
+{
+    return [
+        'name' => 'sales-pivot',
+        // ... other options
+        'csvExportEnabled' => true,
+        'xlsxExportEnabled' => false,  // Hide Excel export
+    ];
+}
+```
+
+Export settings also apply to the drill-down modal - if Excel export is disabled for the main pivot, it will also be disabled in drill-down.
 
 ## Examples
 
@@ -463,4 +755,4 @@ Contributions are welcome! Please read our contributing guidelines before submit
 ## Support
 
 - [GitHub Issues](https://github.com/ptplugins/filament-pivot-table/issues)
-- Email: mihailo@premte.ch
+- Email: plugins@premte.ch
