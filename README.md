@@ -648,6 +648,7 @@ A sort indicator (↑/↓) appears in the column header to show the current sort
 
 - **Single-level columns** - Click directly on the column header
 - **Multi-level columns** - Click on the child header (e.g., click "Jan" under "Q1")
+- **Total column** - Click the "Total" header to sort by row totals
 
 Sorting is session-based and does not persist in the URL.
 
@@ -671,7 +672,7 @@ If your rows are `[Category, Product, Region]`:
 
 ## Export Configuration
 
-Control which export buttons are visible using configuration options.
+Export is **client-side** (runs entirely in the browser). CSV uses pure JavaScript, Excel uses the SheetJS library loaded from CDN. No data is sent to the server — the exported file matches the current view exactly, including collapsed columns, locale formatting, and sort order.
 
 ### Hiding Export Buttons
 
@@ -700,6 +701,10 @@ public function getPivotConfig(): array
 ```
 
 Export settings also apply to the drill-down modal - if Excel export is disabled for the main pivot, it will also be disabled in drill-down.
+
+### Custom SheetJS CDN URL
+
+The SheetJS library URL can be customized in `config/pivot-table.php`. Set to `null` to disable Excel export (useful if you don't want external CDN dependencies).
 
 ## Examples
 
