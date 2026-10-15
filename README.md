@@ -12,10 +12,7 @@ A powerful, interactive pivot table widget for Filament. Transform your data int
 
 ## Demo
 
-A live demo is available for registered users.
-
-1. Register or log in at [plugins.premte.ch/customer](https://plugins.premte.ch/customer)
-2. Open the **Demo** section in the sidebar
+A public live demo is available at [ptplugins.com/demo/pivot-pro](https://ptplugins.com/demo/pivot-pro) - no signup required. Try drill-down, heatmap, trend indicators, CSV/Excel export, and multi-level row & column dimensions on a real dataset.
 
 ## Features
 
@@ -26,6 +23,7 @@ A live demo is available for registered users.
 - **Row & Column Totals** - Automatic total calculations
 - **Grand Total** - Overall summary row
 - **Drill-Down** - Click any cell to see underlying data records
+- **Dimension Value Filters** - Excel-style include/exclude of specific dimension values, with all totals re-aggregated
 - **CSV & Excel Export** - Export visible data to CSV or Excel (configurable)
 - **Dimension Reordering** - Reordering of row/column dimensions with arrows
 - **Column Sorting** - Click column headers to sort data
@@ -38,10 +36,19 @@ A live demo is available for registered users.
 - **i18n Ready** - Translation support included
 - **Array Data Source** - Use raw arrays instead of Eloquent models (API, CSV, etc.)
 
+## Filament compatibility
+
+This package ships a separate release series per Filament generation. With the package added, `composer require ptplugins/filament-pivot-table` resolves to the series that matches the Filament version already installed in your app - or pin it explicitly:
+
+| Filament | Release series | Explicit install |
+|----------|----------------|------------------|
+| v3 | `3.x` | `composer require ptplugins/filament-pivot-table:"^3.0"` |
+| v4 / v5 | `4.x` | `composer require ptplugins/filament-pivot-table:"^4.0"` |
+
 ## Installation
 
 ```bash
-composer require pt-plugins/filament-pivot-table
+composer require ptplugins/filament-pivot-table
 ```
 
 Optionally publish the config file:
@@ -236,6 +243,8 @@ $table = PivotTable::make('report')
 | `trendDecimalPlaces` | int | `1` | Decimal places for trend percentages |
 | `drillDownEnabled` | bool | `false` | Enable click-to-drill-down on cells |
 | `drillDownColumns` | array | `[]` | Columns for drill-down modal |
+| `dimensionFilterEnabled` | bool | `false` | Enable Excel-style dimension value filters (funnel icon per dimension) |
+| `excludedValues` | array | `[]` | Initial excluded values per dimension, e.g. `['month' => ['2026-01']]` |
 | `csvExportEnabled` | bool | `true` | Show/hide CSV export button |
 | `xlsxExportEnabled` | bool | `true` | Show/hide Excel export button |
 | `showTrends` | bool | `false` | Show trend indicators between columns |
@@ -340,6 +349,43 @@ Enable drill-down to allow users to click on any cell and see the underlying dat
 2. **Modal opens** - A Filament modal displays the filtered data
 3. **Automatic filtering** - Data is filtered by the row and column dimensions of the clicked cell
 4. **Drill-down filters** - Auto-generated SelectFilter dropdowns for further filtering
+5. **Totals drill down too** - A row total opens every record of that row, a cell in the grand-total row every record of that column, and the corner grand total the whole (filtered) dataset
+
+### Query-backed drill-down (large datasets)
+
+By default `getDrillDownData()` returns the clicked cell's records as an array. That array travels through Livewire state on every interaction in the modal (sort, search, filter, export) and the whole set is rendered on one page - fine for hundreds of rows, slow for thousands.
+
+For Resource integration, implement `getDrillDownQuery()` instead and return a **Builder**. The widget then runs its Filament table directly against the database: the modal gets pagination (25/50/100), and sorting, search, the in-modal filters and both exports run as SQL. Only a short encrypted query recipe crosses the Livewire boundary, so the payload no longer grows with the data. `getDrillDownData()` is not called when a Builder is returned; return `null` to keep the array flow.
+
+```php
+public function getDrillDownQuery(Builder $query, array $rowFilters, array $colFilters, array $excludedValues = []): ?Builder
+{
+    $drillDownQuery = (clone $query)->select([
+        'orders.id',                    // unique record key - required (see below)
+        'orders.customer',
+        'orders.region',
+        DB::raw("DATE_FORMAT(orders.ordered_at, '%Y-%m') as month"),
+        'orders.amount',
+    ]);
+
+    foreach ($rowFilters + $colFilters as $field => $value) {
+        $drillDownQuery->where($this->columnFor($field), $value);  // your alias -> column mapping
+    }
+
+    $this->applyExcludedValuesToQuery($drillDownQuery, $excludedValues);  // real columns only
+
+    return $drillDownQuery;
+}
+```
+
+Rules for the returned query:
+
+- It is wrapped as a derived table (`FROM (...) AS drill_down`), so select **every column of `getDrillDownColumns()` under exactly that alias** - sorting, search and filters address `drill_down.<alias>`.
+- It must select a **unique record key**: `id` by default, or name another alias with `'drillDownKey' => 'line_id'` in `getPivotConfig()`. For joined rows build one, e.g. `CONCAT(orders.id, '-', lines.id) as id`.
+- Dimension value exclusions (`$excludedValues`) arrive raw - apply them yourself (the protected `applyExcludedValuesToQuery()` helper covers real columns).
+- Page size options: `'drillDownPaginationOptions' => [25, 50, 100]` in `getPivotConfig()`.
+
+Existing consumers are unaffected: without `getDrillDownQuery()` the array flow runs exactly as before.
 
 ### Example
 
@@ -362,7 +408,7 @@ Show percentage change between adjacent columns with colored arrows.
 
 - **▲ +15.3%** (green) - Value increased vs previous column
 - **▼ -8.1%** (red) - Value decreased vs previous column
-- **—** (gray) - No previous column to compare
+- **-** (gray) - No previous column to compare
 
 ### Trend Depth (Multi-level Columns)
 
@@ -416,8 +462,8 @@ Color data cells with dynamic background intensity based on their value.
 ```
 
 - Min/max values are calculated automatically across all cells
-- **Light mode**: green tones (opacity 0–0.35)
-- **Dark mode**: lighter green tones (opacity 0–0.35)
+- **Light mode**: green tones (opacity 0-0.35)
+- **Dark mode**: lighter green tones (opacity 0-0.35)
 - Total cells are not colored
 
 ### Custom Heat Map Colors
@@ -457,6 +503,7 @@ Then override any class in `config/pivot-table.php`:
     'row' => 'hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
     'cell' => 'px-4 py-2 text-right tabular-nums',
     'cell_drilldown' => 'px-4 py-2 text-right tabular-nums cursor-pointer hover:bg-primary-50 dark:hover:bg-primary-900/20',
+    'total_drilldown' => 'cursor-pointer hover:bg-primary-50 dark:hover:bg-primary-900/20', // appended to total cells
     'grand_total_row' => 'bg-gray-100 dark:bg-gray-800 font-bold',
     'expand_button' => 'w-5 h-5 flex-shrink-0 flex items-center justify-center text-gray-500 hover:text-gray-700 rounded hover:bg-gray-200',
     // ... see config file for all available keys
@@ -507,9 +554,9 @@ public function presetActions(): array
 
 ### Preset Action Types
 
-**Preset** (`pivotConfig`) — Sets the full pivot configuration (rows, columns, value, aggregation). Can also set `showTrends` and `showHeatMap`.
+**Preset** (`pivotConfig`) - Sets the full pivot configuration (rows, columns, value, aggregation). Can also set `showTrends` and `showHeatMap`.
 
-**Toggle** (`toggle`) — Toggles a single boolean option on/off. Supported options: `showTrends`, `showHeatMap`, `showRowTotals`, `showColumnTotals`, `showGrandTotal`.
+**Toggle** (`toggle`) - Toggles a single boolean option on/off. Supported options: `showTrends`, `showHeatMap`, `showRowTotals`, `showColumnTotals`, `showGrandTotal`.
 
 ### Available Icons
 
@@ -627,6 +674,53 @@ Click the arrow icon next to any parent row to collapse/expand its children.
 
 ### Columns
 Click a parent column header (e.g., "Q1") to collapse all child columns into a single aggregated column showing the sum.
+
+## Dimension Value Filters
+
+Show only a subset of a dimension's values - e.g. keep Q1 but hide January. Opt in per widget:
+
+```php
+'dimensionFilterEnabled' => true,
+```
+
+Each dimension badge in the configuration panel gets a funnel icon that opens a checkbox tree of the dimension's values (nested dimensions are grouped under their parent's values, Excel-style). Unchecked values are excluded; a badge on the funnel shows how many.
+
+### Excel semantics - totals recalculate
+
+Excluded values are filtered out of the **raw rows before aggregation**, exactly like Excel's pivot filter. That means:
+
+- Row totals, column-group subtotals and the grand total re-aggregate over the remaining rows.
+- Non-additive measures stay correct: `avg`, `countDistinct` and `percentage` (percentages re-base on the filtered total).
+- Drill-down and exports only ever see the remaining rows.
+- An excluded value stays listed in the filter modal, so it can always be re-included.
+
+Exclusions are **per dimension and global for that dimension**: hiding `2026-01` hides it under every parent group.
+
+### Programmatic use
+
+Exclusions ride along in the configuration API, so presets and saved views capture them:
+
+```php
+'pivotConfig' => [
+    'rows' => ['category'],
+    'columns' => ['quarter', 'month'],
+    'value' => 'cost',
+    'aggregation' => 'sum',
+    'excludedValues' => ['month' => ['2026-01']],   // omit the key to leave exclusions untouched
+],
+```
+
+You can also seed initial exclusions via the `excludedValues` mount parameter.
+
+For Resource integration: the `request-drill-down-data` event carries an optional `excludedValues` payload. A plain 3-arg `getDrillDownData()` override automatically receives the exclusion-filtered builder; custom-SQL pivots (alias / `DB::raw` dimensions) can instead opt into receiving the raw exclusions via an optional 4th parameter - see [Customizing Without Forking](#customizing-without-forking-slots--data-hooks).
+
+### Caveats
+
+- `null` and `''` values merge into one **(Blank)** entry.
+- Exclusions are not part of the URL deep link; a page refresh starts unfiltered (same policy as column sorting).
+- In Resource integration, changing table filters re-mounts the widget and resets exclusions (the underlying dataset changed).
+- Removing a dimension from the pivot clears its exclusions.
+- Dimensions with more than 500 distinct values are truncated in the filter modal.
 
 ## Export Configuration
 
@@ -755,6 +849,89 @@ Then use it in your widget:
 ])
 ```
 
+## Customizing Without Forking (Slots & Data Hooks)
+
+**Never publish or override the plugin's `pivot-table::*` views.** A forked view is a maintenance trap: every plugin update changes our blade internals, and every copied file silently stops receiving those changes - you re-port them by hand, forever. All customization flows through two sanctioned, semver-covered surfaces instead:
+
+1. **Data & logic** - the four hooks you already implement: `getPivotData()`, `getDrillDownData()`, `getPivotConfig()`, `getDrillDownColumns()`, plus config keys.
+2. **View & markup** - **named slots**: fixed regions where you inject your own partials. The slot name and its scope are the contract; the plugin may freely restructure the markup *around* a slot between releases. Because your markup (and your e2e selectors) live in *your* partials, plugin view refactors cannot break them. Renaming or removing a slot is an intentional breaking change with a changelog entry, and plugin-side tests assert every documented region keeps rendering injected content.
+
+### Page slots
+
+Configured via the `slots` key of `getPivotConfig()`. Page-level slots accept a blade **view name**, a **closure** receiving the scope array, an **`Htmlable`**, or a **`View`**:
+
+| Slot | Where it renders |
+|---|---|
+| `page.header` | Top of the page, before the filter card |
+| `toolbar.start` / `toolbar.end` | Dropdown-layout toolbar - before the built-in buttons / after the filter dropdown |
+| `beforeWidget` / `afterWidget` | Directly above / below the pivot widget |
+| `page.footer` | Bottom of the page |
+
+Scope: `['config' => getPivotConfig(), 'page' => $this]`.
+
+```php
+use Illuminate\Support\HtmlString;
+
+public function getPivotConfig(): array
+{
+    return [
+        // ...
+        'slots' => [
+            'toolbar.end' => 'filament.pivot.toolbar-extra',   // your blade view
+            'beforeWidget' => fn (array $scope) => new HtmlString(
+                '<div class="text-sm">'.count($scope['config']['availableFields']).' fields</div>'
+            ),
+        ],
+    ];
+}
+```
+
+Prefer logic in a method? Each page slot also has an overridable render method - `renderPageHeader()`, `renderPageFooter()`, `renderToolbarStart()`, `renderToolbarEnd()`, `renderBeforeWidget()`, `renderAfterWidget()` - returning a view, `Htmlable`, raw-HTML string or `null`. A `slots` config entry for the same region wins.
+
+### Widget, table and drill-down slots
+
+These regions render inside the pivot widget Livewire component, so their values must be **plain blade view names** (a closure cannot cross the Livewire boundary):
+
+| Slot | Where it renders | Scope (besides `name`, `widget`) |
+|---|---|---|
+| `widget.toolbar.start` / `widget.toolbar.end` | Widget toolbar - left / right button group | - |
+| `dimensionChip.actions` | Inside every dimension chip, next to the filter funnel | `dimension`, `axis` (`row` \| `column`) |
+| `table.beforeRows` / `table.afterRows` | Inside `<tbody>`, around the data rows - inject `<tr>` markup | `pivotData` |
+| `emptyState` | Replaces the built-in empty state | `reason` (`no-data` \| `not-configured`) |
+| `cell` | Replaces a data cell's content (the `<td>`, drill-down click and heat map stay plugin-owned) | `row`, `columnKey`, `field`, `value` |
+| `grandTotal.label` | Replaces the grand-total row label | `pivotData` |
+| `drilldown.header` / `drilldown.footer` | Drill-down modal body, around the table | - |
+
+```blade
+{{-- resources/views/filament/pivot/toolbar-extra.blade.php --}}
+<button type="button" data-testid="my-sync-button"
+        x-on:click="$dispatch('my-app-sync')"
+        class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border">
+    Sync
+</button>
+```
+
+Two things to know:
+
+- Every slot view receives its scope both as individual variables and as a `$slotScope` array. **`$slotScope` is the authoritative contract** - blade includes inherit unrelated variables from the parent view; don't rely on those.
+- Inside widget/table/drill-down slots, `wire:click` targets the *widget* component. To reach your own page, dispatch an event (`x-on:click="$dispatch('...')"`) and listen for it on the page.
+
+### Custom-SQL drill-down exclusions (opt-in 4th parameter)
+
+If your pivot is built from custom SQL whose dimensions are aliases / `DB::raw` expressions, the generic exclusion pre-filter (`whereNotIn('<dimension>', ...)`) would reference a non-existent column. Opt in by **appending the optional 4th parameter** to your existing `getDrillDownData()` override - the plugin detects it and hands you the raw query plus the exclusions, to apply through the same field mapping you already use for `$rowFilters` / `$colFilters`:
+
+```php
+public function getDrillDownData(Builder $query, array $rowFilters, array $colFilters, array $excludedValues = []): array
+{
+    foreach ($excludedValues as $dimension => $values) {
+        $query->whereNotIn($this->fieldMapping[$dimension] ?? $dimension, $values);
+    }
+    // ... your existing rowFilters / colFilters handling ...
+}
+```
+
+Plain 3-arg overrides keep working unchanged - the plugin pre-filters the query generically before calling them. Do **not** override `applyExcludedValuesToQuery()` (internal fallback) and do **not** re-declare `handleDrillDownRequest()` (sealed Livewire plumbing - re-declaring it froze its signature and fatal-errored consumer apps when 3.5.0 evolved it).
+
 ## Requirements
 
 - PHP 8.1+
@@ -768,4 +945,4 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ## Support
 
-- Email: plugins@premte.ch
+- Email: mihailo@ptplugins.com
